@@ -9,7 +9,8 @@ import {
   PackageCheck, Layers, ExternalLink, Sparkles, Plus, Trash2, Edit3, UploadCloud,
   AlertTriangle, Settings, Save, Palette, Boxes,
   Lock, Unlock, LogOut, ShieldCheck, Smartphone, Laptop, Tablet, Globe, Copy,
-  Volume2, VolumeX, Megaphone, MessageCircle, Loader2, Mail, Bell
+  Volume2, VolumeX, Megaphone, MessageCircle, Loader2, Mail, Bell,
+  FileText, Download, Calendar, Receipt
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 
@@ -58,6 +59,59 @@ interface Order {
     sentAt?: string;
     responseRaw?: any;
   };
+}
+
+interface SalesReportItem {
+  productId?: string;
+  productTitle: string;
+  variantName: string;
+  colorCode?: string;
+  size?: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  image?: string;
+}
+
+interface SalesReportRecord {
+  _id: string;
+  orderId?: string;
+  orderNumber: string;
+  customerName: string;
+  customerPhone?: string;
+  deliveryAddress?: string;
+  deliveryArea?: string;
+  deliveryFee: number;
+  subtotal: number;
+  totalAmount: number;
+  paymentMethod: string;
+  deliveredAt: string;
+  items: SalesReportItem[];
+  month: number;
+  year: number;
+  monthYear: string;
+}
+
+interface SalesReportSummary {
+  totalDeliveredOrders: number;
+  totalItemsSold: number;
+  totalRevenue: number;
+  totalDeliveryFees: number;
+  netProductSales: number;
+  periodLabel: string;
+  period: 'monthly' | 'yearly';
+  year: number;
+  month: number;
+}
+
+interface TopSellingProduct {
+  productTitle: string;
+  variantName: string;
+  colorCode?: string;
+  size?: string;
+  image?: string;
+  totalQuantity: number;
+  totalSales: number;
 }
 
 interface ProductVariant {
@@ -150,7 +204,7 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
 
   // 2. CORE NAVIGATION & DATA STATES
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'products' | 'offers' | 'categories_delivery' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'products' | 'sales_reports' | 'offers' | 'categories_delivery' | 'settings'>('dashboard');
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
 
@@ -209,6 +263,44 @@ export default function App() {
       @page {
         size: A4 portrait;
         margin: 12mm 15mm;
+      }
+      @media print {
+        html, body {
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+      }
+    `,
+  });
+
+  // 4.1 SALES REPORT STATES & PRINT
+  const [salesReportPeriod, setSalesReportPeriod] = useState<'monthly' | 'yearly'>('monthly');
+  const [salesReportYear, setSalesReportYear] = useState<number>(() => new Date().getFullYear());
+  const [salesReportMonth, setSalesReportMonth] = useState<number>(() => new Date().getMonth() + 1);
+  const [salesReports, setSalesReports] = useState<SalesReportRecord[]>([]);
+  const [salesReportSummary, setSalesReportSummary] = useState<SalesReportSummary | null>(null);
+  const [topSellingProducts, setTopSellingProducts] = useState<TopSellingProduct[]>([]);
+  const [availableReportYears, setAvailableReportYears] = useState<number[]>([new Date().getFullYear()]);
+  const [reportMonthsData, setReportMonthsData] = useState<{ month: number; nameBn: string; orderCount: number; revenue: number }[]>([]);
+  const [salesReportLoading, setSalesReportLoading] = useState<boolean>(false);
+  const [salesReportSearch, setSalesReportSearch] = useState<string>('');
+
+  const salesReportPrintRef = useRef<HTMLDivElement>(null);
+
+  const handlePrintSalesReport = useReactToPrint({
+    contentRef: salesReportPrintRef,
+    documentTitle: `Sales-Report-${salesReportSummary?.periodLabel || 'Report'}`.replace(/[\s\(\)]+/g, '-'),
+    pageStyle: `
+      @page {
+        size: A4 portrait;
+        margin: 10mm 12mm;
       }
       @media print {
         html, body {
@@ -795,6 +887,120 @@ export default function App() {
     localStorage.removeItem('eb_admin_auth');
     setIsAuthenticated(false);
     showToast('সফলভাবে লগআউট হয়েছেন।');
+  };
+
+  // 6.1 SALES REPORT DATA OPERATIONS
+  const fetchSalesReports = async (
+    period = salesReportPeriod,
+    year = salesReportYear,
+    month = salesReportMonth
+  ) => {
+    setSalesReportLoading(true);
+    try {
+      const token = localStorage.getItem('eb_admin_token');
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+      const url = `${API_BASE_URL}/sales-reports?period=${period}&year=${year}&month=${month}`;
+      const res = await fetch(url, { headers });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          setSalesReports(json.data.reports || []);
+          setSalesReportSummary(json.data.summary || null);
+          setTopSellingProducts(json.data.topProducts || []);
+          if (json.data.availableYears?.length > 0) {
+            setAvailableReportYears(json.data.availableYears);
+          }
+          if (json.data.monthsData) {
+            setReportMonthsData(json.data.monthsData);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Error fetching sales reports:', err);
+    } finally {
+      setSalesReportLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated && activeTab === 'sales_reports') {
+      fetchSalesReports(salesReportPeriod, salesReportYear, salesReportMonth);
+    }
+  }, [isAuthenticated, activeTab, salesReportPeriod, salesReportYear, salesReportMonth]);
+
+  const handleDeleteSalesReport = async (id: string) => {
+    try {
+      const token = localStorage.getItem('eb_admin_token');
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+      const res = await fetch(`${API_BASE_URL}/sales-reports/${id}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('সেলস রিপোর্ট রেকর্ড মুছে ফেলা হয়েছে।');
+        setSalesReports((prev) => prev.filter((r) => r._id !== id));
+        fetchSalesReports();
+      } else {
+        alert(data.message || 'ডিলিট ব্যর্থ হয়েছে');
+      }
+    } catch {
+      alert('সার্ভারের সাথে সংযোগে সমস্যা হয়েছে');
+    }
+  };
+
+  const handleClearPeriodReports = async () => {
+    const label = salesReportSummary?.periodLabel || 'নির্বাচিত সময়';
+    if (!window.confirm(`সতর্কতা: আপনি কি নিশ্চিত যে ${label}-এর সকল সেলস রিপোর্ট রেকর্ড মুছে ফেলতে চান?`)) {
+      return;
+    }
+    try {
+      const token = localStorage.getItem('eb_admin_token');
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+
+      const res = await fetch(`${API_BASE_URL}/sales-reports/clear`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          period: salesReportPeriod,
+          year: salesReportYear,
+          month: salesReportMonth,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(data.message || 'রিপোর্ট মুছে ফেলা হয়েছে।');
+        fetchSalesReports();
+      } else {
+        alert(data.message || 'মুছে ফেলা ব্যর্থ হয়েছে');
+      }
+    } catch {
+      alert('সার্ভারের সাথে সংযোগে সমস্যা হয়েছে');
+    }
+  };
+
+  const handleSyncSalesReports = async () => {
+    try {
+      const token = localStorage.getItem('eb_admin_token');
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      showToast('ডেলিভারড অর্ডার সিঙ্ক করা হচ্ছে...');
+      const res = await fetch(`${API_BASE_URL}/sales-reports/sync`, {
+        method: 'POST',
+        headers,
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('সেলস রিপোর্ট সফলভাবে সিঙ্ক সম্পন্ন হয়েছে।');
+        fetchSalesReports();
+      }
+    } catch {
+      showToast('সিঙ্ক ব্যর্থ হয়েছে');
+    }
   };
 
   // Handle Order Status Switch
@@ -2145,6 +2351,18 @@ export default function App() {
         </button>
 
         <button
+          onClick={() => setActiveTab('sales_reports')}
+          className={`py-3 px-4 font-semibold border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
+            activeTab === 'sales_reports'
+              ? 'border-emerald-600 text-emerald-700'
+              : 'border-transparent text-slate-500 hover:text-slate-900'
+          }`}
+        >
+          <FileText size={16} />
+          সেলস রিপোর্ট ({salesReports.length})
+        </button>
+
+        <button
           onClick={() => setActiveTab('offers')}
           className={`py-3 px-4 font-semibold border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
             activeTab === 'offers'
@@ -2929,6 +3147,436 @@ export default function App() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: SALES & DELIVERY REPORT */}
+        {activeTab === 'sales_reports' && (
+          <div className="space-y-6">
+            {/* Header & Filter Controller */}
+            <div className="card bg-white p-5 rounded-2xl shadow-xs border border-slate-200 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
+              <div>
+                <h3 className="font-bold text-slate-900 text-xl flex items-center gap-2">
+                  <FileText className="text-emerald-700" size={22} />
+                  বিক্রয় ও ডেলিভারি রিপোর্ট (Sales Reports)
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  ডেলিভারি সম্পন্ন হওয়া অর্ডারের অফিসিয়াল হিসাব, মাসিক ও বার্ষিক আয় বিশ্লেষণ এবং PDF ডাউনলোড
+                </p>
+              </div>
+
+              {/* Action Toolbar */}
+              <div className="flex flex-wrap items-center gap-2.5 w-full xl:w-auto">
+                {/* Period Selector (Monthly vs Yearly) */}
+                <div className="join bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                  <button
+                    onClick={() => setSalesReportPeriod('monthly')}
+                    className={`join-item btn btn-xs rounded-lg font-bold border-0 ${
+                      salesReportPeriod === 'monthly'
+                        ? 'bg-emerald-700 text-white shadow-xs'
+                        : 'bg-transparent text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    মাসিক রিপোর্ট
+                  </button>
+                  <button
+                    onClick={() => setSalesReportPeriod('yearly')}
+                    className={`join-item btn btn-xs rounded-lg font-bold border-0 ${
+                      salesReportPeriod === 'yearly'
+                        ? 'bg-emerald-700 text-white shadow-xs'
+                        : 'bg-transparent text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    বার্ষিক রিপোর্ট
+                  </button>
+                </div>
+
+                {/* Year Select */}
+                <div className="flex items-center gap-1.5">
+                  <label className="text-xs font-bold text-slate-500 hidden sm:inline">বছর:</label>
+                  <select
+                    value={salesReportYear}
+                    onChange={(e) => setSalesReportYear(Number(e.target.value))}
+                    className="select select-bordered select-xs rounded-lg bg-white font-medium text-xs text-slate-800"
+                  >
+                    {availableReportYears.map((yr) => (
+                      <option key={yr} value={yr}>
+                        {yr}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Month Select (Only when Monthly is active) */}
+                {salesReportPeriod === 'monthly' && (
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs font-bold text-slate-500 hidden sm:inline">মাস:</label>
+                    <select
+                      value={salesReportMonth}
+                      onChange={(e) => setSalesReportMonth(Number(e.target.value))}
+                      className="select select-bordered select-xs rounded-lg bg-white font-medium text-xs text-slate-800"
+                    >
+                      {[
+                        { num: 1, name: 'জানুয়ারি' },
+                        { num: 2, name: 'ফেব্রুয়ারি' },
+                        { num: 3, name: 'মার্চ' },
+                        { num: 4, name: 'এপ্রিল' },
+                        { num: 5, name: 'মে' },
+                        { num: 6, name: 'জুন' },
+                        { num: 7, name: 'জুলাই' },
+                        { num: 8, name: 'আগস্ট' },
+                        { num: 9, name: 'সেপ্টেম্বর' },
+                        { num: 10, name: 'অক্টোবর' },
+                        { num: 11, name: 'নভেম্বর' },
+                        { num: 12, name: 'ডিসেম্বর' },
+                      ].map((m) => (
+                        <option key={m.num} value={m.num}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* PDF Download Button */}
+                <button
+                  onClick={() => handlePrintSalesReport()}
+                  disabled={salesReports.length === 0}
+                  className="btn btn-xs bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg border-0 gap-1.5 shadow-2xs"
+                  title="বর্তমান সেলস রিপোর্টের PDF ডাউনলোড অথবা প্রিন্ট করুন"
+                >
+                  <Download size={13} />
+                  <span>PDF ডাউনলোড</span>
+                </button>
+
+                {/* Sync Button */}
+                <button
+                  onClick={handleSyncSalesReports}
+                  disabled={salesReportLoading}
+                  className="btn btn-xs btn-outline border-slate-300 text-slate-700 hover:bg-slate-100 rounded-lg gap-1"
+                  title="ডেলিভারড হওয়া অর্ডারসমূহ স্বয়ংক্রিয়ভাবে রিপোর্টে সিঙ্ক করুন"
+                >
+                  <RefreshCw size={13} className={salesReportLoading ? 'animate-spin' : ''} />
+                  <span className="hidden sm:inline">সিঙ্ক</span>
+                </button>
+
+                {/* Clear Period Button */}
+                {salesReports.length > 0 && (
+                  <button
+                    onClick={handleClearPeriodReports}
+                    className="btn btn-xs btn-ghost text-rose-600 hover:bg-rose-50 rounded-lg gap-1"
+                    title="এই পিরিয়ডের সকল সেলস রিপোর্ট রেকর্ড মুছে ফেলুন"
+                  >
+                    <Trash2 size={13} />
+                    <span className="hidden sm:inline">রিপোর্ট মুছুন</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Current Period Banner */}
+            <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl px-5 py-3 flex flex-wrap items-center justify-between gap-3 text-emerald-950">
+              <div className="flex items-center gap-2.5">
+                <Calendar size={18} className="text-emerald-700 shrink-0" />
+                <span className="text-sm font-bold">
+                  নির্বাচিত রিপোর্ট সময়কাল:
+                  <span className="ml-1.5 px-2.5 py-0.5 rounded-full bg-emerald-700 text-white text-xs font-black tracking-wide">
+                    {salesReportSummary?.periodLabel || (salesReportPeriod === 'monthly' ? `${salesReportMonth}/${salesReportYear}` : `${salesReportYear} সাল`)}
+                  </span>
+                </span>
+              </div>
+              <p className="text-xs text-emerald-800 font-medium">
+                সর্বমোট ডেলিভারড অর্ডার: <b>{salesReports.length}</b> টি | প্রস্তুতকারক: Elegant Beauty ERP
+              </p>
+            </div>
+
+            {/* KPI Summary Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
+              <div className="card bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+                <div className="flex items-center justify-between text-slate-500 mb-1">
+                  <span className="text-xs font-bold uppercase tracking-wider">ডেলিভারড অর্ডার</span>
+                  <PackageCheck size={18} className="text-emerald-600" />
+                </div>
+                <h4 className="text-2xl font-black text-slate-900 font-mono">
+                  {salesReportSummary?.totalDeliveredOrders ?? salesReports.length}
+                </h4>
+                <p className="text-[11px] text-slate-400 mt-1">সফলভাবে ডেলিভারড</p>
+              </div>
+
+              <div className="card bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+                <div className="flex items-center justify-between text-slate-500 mb-1">
+                  <span className="text-xs font-bold uppercase tracking-wider">বিক্রীত পণ্য</span>
+                  <ShoppingBag size={18} className="text-blue-600" />
+                </div>
+                <h4 className="text-2xl font-black text-slate-900 font-mono">
+                  {salesReportSummary?.totalItemsSold ?? 0}
+                </h4>
+                <p className="text-[11px] text-slate-400 mt-1">মোট আইটেম সংখ্যা</p>
+              </div>
+
+              <div className="card bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+                <div className="flex items-center justify-between text-slate-500 mb-1">
+                  <span className="text-xs font-bold uppercase tracking-wider">নেট প্রোডাক্ট সেলস</span>
+                  <Receipt size={18} className="text-indigo-600" />
+                </div>
+                <h4 className="text-2xl font-black text-slate-900 font-mono">
+                  ৳ {(salesReportSummary?.netProductSales ?? 0).toLocaleString()}
+                </h4>
+                <p className="text-[11px] text-slate-400 mt-1">ডেলিভারি চার্জ ব্যতীত</p>
+              </div>
+
+              <div className="card bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+                <div className="flex items-center justify-between text-slate-500 mb-1">
+                  <span className="text-xs font-bold uppercase tracking-wider">সংগৃহীত ডেলিভারি ফি</span>
+                  <Truck size={18} className="text-amber-600" />
+                </div>
+                <h4 className="text-2xl font-black text-slate-900 font-mono">
+                  ৳ {(salesReportSummary?.totalDeliveryFees ?? 0).toLocaleString()}
+                </h4>
+                <p className="text-[11px] text-slate-400 mt-1">কুরিয়ার ও পরিবহন ফি</p>
+              </div>
+
+              <div className="card bg-gradient-to-br from-emerald-800 to-teal-900 text-white p-4 rounded-2xl shadow-md col-span-2 lg:col-span-1">
+                <div className="flex items-center justify-between text-emerald-200 mb-1">
+                  <span className="text-xs font-bold uppercase tracking-wider">সর্বমোট সেলস আদায়</span>
+                  <TrendingUp size={18} className="text-emerald-300" />
+                </div>
+                <h4 className="text-2xl font-black font-mono">
+                  ৳ {(salesReportSummary?.totalRevenue ?? 0).toLocaleString()}
+                </h4>
+                <p className="text-[11px] text-emerald-200 mt-1">মোট সংগৃহীত রাজস্ব</p>
+              </div>
+            </div>
+
+            {/* Yearly View: Month-by-Month Matrix */}
+            {salesReportPeriod === 'yearly' && reportMonthsData.length > 0 && (
+              <div className="card bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                    <Calendar size={16} className="text-emerald-700" />
+                    {salesReportYear} সালের ১২ মাসের বিক্রয় তুলনামূলক সারসংক্ষেপ
+                  </h4>
+                  <span className="text-xs text-slate-400">যে কোনো মাসে ক্লিক করে বিস্তারিত মাসিক রিপোর্টে যান</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
+                  {reportMonthsData.map((m) => (
+                    <button
+                      key={m.month}
+                      type="button"
+                      onClick={() => {
+                        setSalesReportPeriod('monthly');
+                        setSalesReportMonth(m.month);
+                      }}
+                      className="p-3 rounded-xl border border-slate-200 hover:border-emerald-600 hover:bg-emerald-50/50 text-left transition-all group"
+                    >
+                      <p className="text-xs font-bold text-slate-700 group-hover:text-emerald-800">{m.nameBn}</p>
+                      <p className="text-sm font-black font-mono text-slate-900 mt-1">৳ {Number(m.revenue || 0).toLocaleString()}</p>
+                      <p className="text-[11px] text-slate-400 font-medium">{m.orderCount} টি ডেলিভারি</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Top Selling Products in Selected Period */}
+            {topSellingProducts.length > 0 && (
+              <div className="card bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                  <Sparkles size={16} className="text-amber-500" />
+                  এই সময়ে সর্বাধিক বিক্রীত প্রোডাক্ট (Top Selling Products)
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                  {topSellingProducts.slice(0, 5).map((tp, idx) => (
+                    <div key={idx} className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-lg overflow-hidden bg-white shrink-0 border border-slate-200">
+                        <img src={tp.image || '/banner.jpeg'} alt={tp.productTitle} className="w-full h-full object-cover" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-slate-800 truncate" title={tp.productTitle}>{tp.productTitle}</p>
+                        <p className="text-[11px] text-slate-500 truncate">{tp.variantName}</p>
+                        <div className="flex items-center justify-between text-xs font-bold mt-1">
+                          <span className="text-emerald-700 font-mono">{tp.totalQuantity} টি</span>
+                          <span className="text-slate-900 font-mono">৳ {tp.totalSales.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Delivered Sales Records Table */}
+            <div className="card bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+              <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-50/50">
+                <div className="flex items-center gap-2">
+                  <h4 className="font-bold text-slate-900 text-sm">ডেলিভারড অর্ডারের বিস্তারিত বিবরণী</h4>
+                  <span className="badge badge-sm badge-neutral font-mono">{salesReports.length}</span>
+                </div>
+
+                {/* Search Box */}
+                <div className="relative w-full sm:w-64">
+                  <input
+                    type="text"
+                    value={salesReportSearch}
+                    onChange={(e) => setSalesReportSearch(e.target.value)}
+                    placeholder="অর্ডার নং, নাম বা ফোন খুঁজুন..."
+                    className="input input-xs input-bordered w-full pl-8 rounded-lg bg-white text-xs text-slate-800"
+                  />
+                  <Search size={13} className="absolute left-2.5 top-2 text-slate-400" />
+                  {salesReportSearch && (
+                    <button
+                      onClick={() => setSalesReportSearch('')}
+                      className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 text-xs font-bold"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {salesReportLoading ? (
+                <div className="p-12 text-center">
+                  <span className="loading loading-spinner loading-md text-emerald-700"></span>
+                  <p className="text-xs text-slate-500 mt-2 font-medium">সেলস রিপোর্ট লোড করা হচ্ছে...</p>
+                </div>
+              ) : salesReports.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 space-y-3">
+                  <ShoppingBag size={42} className="mx-auto text-slate-300" />
+                  <p className="text-sm font-semibold text-slate-600">
+                    {salesReportSummary?.periodLabel || 'এই সময়ে'} কোনো ডেলিভারড সেলস রেকর্ড পাওয়া যায়নি।
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    যখন কোনো অর্ডার 'Delivered' স্ট্যাটাসে পৌঁছাবে, তা স্বয়ংক্রিয়ভাবে এখানে সেলস রিপোর্ট হিসেবে যুক্ত হবে।
+                  </p>
+                  <button
+                    onClick={handleSyncSalesReports}
+                    className="btn btn-xs bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg border-0 gap-1.5 shadow-2xs mt-2"
+                  >
+                    <RefreshCw size={13} />
+                    <span>বর্তমান ডেলিভারড অর্ডারসমূহ সিঙ্ক করুন</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="table table-xs w-full text-slate-700">
+                    <thead className="bg-slate-100/80 text-slate-700 text-xs uppercase tracking-wider font-bold">
+                      <tr>
+                        <th className="py-3 pl-4">অর্ডার নং ও তারিখ</th>
+                        <th>গ্রাহকের তথ্য</th>
+                        <th>বিক্রীত পণ্যের বিবরণ</th>
+                        <th className="text-right">সাবটোটাল</th>
+                        <th className="text-right">ডেলিভারি ফি</th>
+                        <th className="text-right">সর্বমোট আদায়</th>
+                        <th className="text-center pr-4">অ্যাকশন</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs">
+                      {salesReports
+                        .filter((r) => {
+                          if (!salesReportSearch) return true;
+                          const q = salesReportSearch.toLowerCase().trim();
+                          return (
+                            r.orderNumber?.toLowerCase().includes(q) ||
+                            r.customerName?.toLowerCase().includes(q) ||
+                            r.customerPhone?.toLowerCase().includes(q) ||
+                            r.deliveryAddress?.toLowerCase().includes(q) ||
+                            r.items?.some((it) => it.productTitle?.toLowerCase().includes(q))
+                          );
+                        })
+                        .map((report) => (
+                          <tr key={report._id} className="hover:bg-slate-50/70 transition-colors">
+                            {/* Order Number & Delivery Date */}
+                            <td className="py-3 pl-4">
+                              <span className="font-mono font-bold text-slate-900 block">#{report.orderNumber}</span>
+                              <span className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
+                                <Clock size={11} />
+                                {report.deliveredAt ? new Date(report.deliveredAt).toLocaleDateString('bn-BD') : 'N/A'}
+                              </span>
+                            </td>
+
+                            {/* Customer Info */}
+                            <td>
+                              <span className="font-bold text-slate-900 block">{report.customerName}</span>
+                              <span className="font-mono text-slate-500 text-[11px] block">{report.customerPhone || 'N/A'}</span>
+                              <span className="text-[11px] text-slate-400 truncate max-w-xs block" title={report.deliveryAddress}>
+                                {report.deliveryAddress || 'N/A'}
+                              </span>
+                            </td>
+
+                            {/* Items Sold */}
+                            <td className="max-w-md">
+                              <div className="space-y-1.5 py-1">
+                                {report.items.map((it, idx) => (
+                                  <div key={idx} className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-md bg-white border border-slate-200 overflow-hidden shrink-0">
+                                      <img src={it.image || '/banner.jpeg'} alt={it.productTitle} className="w-full h-full object-cover" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="font-bold text-slate-800 text-xs truncate" title={it.productTitle}>
+                                        {it.productTitle}
+                                      </p>
+                                      <p className="text-[10px] text-slate-500">
+                                        ভ্যারিয়েন্ট: {it.variantName} {it.size ? `| সাইজ: ${it.size}` : ''} | Qty: <b className="text-emerald-700 font-mono">{it.quantity}</b> × ৳{it.unitPrice}
+                                      </p>
+                                    </div>
+                                    <span className="font-mono font-bold text-xs text-slate-800 shrink-0">
+                                      ৳{it.totalPrice}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </td>
+
+                            {/* Subtotal */}
+                            <td className="text-right font-mono font-semibold text-slate-700">
+                              ৳ {Number(report.subtotal || 0).toLocaleString()}
+                            </td>
+
+                            {/* Delivery Fee */}
+                            <td className="text-right font-mono text-slate-500 text-[11px]">
+                              ৳ {Number(report.deliveryFee || 0).toLocaleString()}
+                            </td>
+
+                            {/* Total Amount */}
+                            <td className="text-right font-mono font-black text-emerald-800 text-sm">
+                              ৳ {Number(report.totalAmount || 0).toLocaleString()}
+                            </td>
+
+                            {/* Action: Delete */}
+                            <td className="text-center pr-4">
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSalesReport(report._id)}
+                                className="btn btn-xs btn-ghost text-rose-500 hover:bg-rose-50 rounded-lg"
+                                title="এই সেলস রেকর্ডটি মুছে ফেলুন"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                    <tfoot className="bg-slate-100/90 font-bold text-slate-900 text-xs border-t-2 border-slate-300">
+                      <tr>
+                        <td colSpan={3} className="py-3 pl-4">
+                          সর্বমোট সারসংক্ষেপ ({salesReports.length} টি ডেলিভারড অর্ডার)
+                        </td>
+                        <td className="text-right font-mono">
+                          ৳ {(salesReportSummary?.netProductSales ?? 0).toLocaleString()}
+                        </td>
+                        <td className="text-right font-mono">
+                          ৳ {(salesReportSummary?.totalDeliveryFees ?? 0).toLocaleString()}
+                        </td>
+                        <td className="text-right font-mono text-emerald-800 text-sm font-black">
+                          ৳ {(salesReportSummary?.totalRevenue ?? 0).toLocaleString()}
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -5275,6 +5923,190 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* PRINTABLE A4 SALES & REVENUE REPORT CONTAINER                  */}
+      {/* (Targeted exclusively by handlePrintSalesReport via react-to-print) */}
+      {/* ------------------------------------------------------------- */}
+      <div style={{ display: 'none' }}>
+        <div ref={salesReportPrintRef} className="p-8 bg-white text-slate-900 font-sans text-xs">
+          {/* Official Document Header */}
+          <div className="flex justify-between items-start border-b-2 border-slate-900 pb-4 mb-4">
+            <div className="flex items-center gap-3">
+              <img src="/logo-light.jpeg" alt="Logo" className="w-14 h-14 rounded-full border border-slate-300" />
+              <div>
+                <h1 className="text-2xl font-black text-slate-900 tracking-tight">Elegant Beauty</h1>
+                <p className="text-xs text-slate-600 font-semibold mt-0.5">অফিসিয়াল বিক্রয় ও রাজস্ব বিবরণী (Sales & Revenue Report)</p>
+                <p className="text-[11px] text-slate-500">হটলাইন: +8801648439277 | ওয়েবসাইট: https://www.elegant-beauty.xyz</p>
+              </div>
+            </div>
+
+            <div className="text-right">
+              <span className="inline-block px-3 py-1 bg-slate-900 text-white font-bold text-xs rounded-md uppercase tracking-wider mb-1">
+                {salesReportSummary?.period === 'yearly' ? 'বার্ষিক রিপোর্ট' : 'মাসিক রিপোর্ট'}
+              </span>
+              <p className="text-sm font-black text-slate-800">
+                সময়কাল: {salesReportSummary?.periodLabel || `${salesReportMonth}/${salesReportYear}`}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                রিপোর্ট প্রস্তুত তারিখ: {new Date().toLocaleDateString('bn-BD', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+          </div>
+
+          {/* KPI Summary Block */}
+          <div className="grid grid-cols-5 gap-3 mb-6 p-4 bg-slate-50 border border-slate-300 rounded-lg">
+            <div className="text-center border-r border-slate-200 pr-2">
+              <p className="text-[10px] uppercase font-bold text-slate-500">ডেলিভারড অর্ডার</p>
+              <p className="text-lg font-black font-mono text-slate-900 mt-0.5">
+                {salesReportSummary?.totalDeliveredOrders ?? salesReports.length} টি
+              </p>
+            </div>
+            <div className="text-center border-r border-slate-200 pr-2">
+              <p className="text-[10px] uppercase font-bold text-slate-500">মোট বিক্রীত পণ্য</p>
+              <p className="text-lg font-black font-mono text-blue-700 mt-0.5">
+                {salesReportSummary?.totalItemsSold ?? 0} টি
+              </p>
+            </div>
+            <div className="text-center border-r border-slate-200 pr-2">
+              <p className="text-[10px] uppercase font-bold text-slate-500">নেট প্রোডাক্ট বিক্রয়</p>
+              <p className="text-lg font-black font-mono text-indigo-700 mt-0.5">
+                ৳{(salesReportSummary?.netProductSales ?? 0).toLocaleString()}
+              </p>
+            </div>
+            <div className="text-center border-r border-slate-200 pr-2">
+              <p className="text-[10px] uppercase font-bold text-slate-500">ডেলিভারি ফি আদায়</p>
+              <p className="text-lg font-black font-mono text-amber-700 mt-0.5">
+                ৳{(salesReportSummary?.totalDeliveryFees ?? 0).toLocaleString()}
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] uppercase font-bold text-slate-500">সর্বমোট রাজস্ব আয়</p>
+              <p className="text-lg font-black font-mono text-emerald-800 mt-0.5">
+                ৳{(salesReportSummary?.totalRevenue ?? 0).toLocaleString()}
+              </p>
+            </div>
+          </div>
+
+          {/* Top Selling Products Summary (If available) */}
+          {topSellingProducts.length > 0 && (
+            <div className="mb-6">
+              <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider mb-2 border-b border-slate-300 pb-1">
+                সর্বাধিক বিক্রীত পণ্যসমূহ (Top Selling Products)
+              </h3>
+              <table className="w-full text-[11px] border-collapse border border-slate-300">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-700">
+                    <th className="border border-slate-300 p-1.5 text-left">ক্র.নং</th>
+                    <th className="border border-slate-300 p-1.5 text-left">পণ্যের নাম</th>
+                    <th className="border border-slate-300 p-1.5 text-left">ভ্যারিয়েন্ট / সাইজ</th>
+                    <th className="border border-slate-300 p-1.5 text-right">বিক্রীত সংখ্যা</th>
+                    <th className="border border-slate-300 p-1.5 text-right">মোট বিক্রয়মূল্য</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topSellingProducts.slice(0, 8).map((tp, idx) => (
+                    <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'}>
+                      <td className="border border-slate-300 p-1.5 text-center font-mono">{idx + 1}</td>
+                      <td className="border border-slate-300 p-1.5 font-bold">{tp.productTitle}</td>
+                      <td className="border border-slate-300 p-1.5">{tp.variantName} {tp.size ? `(${tp.size})` : ''}</td>
+                      <td className="border border-slate-300 p-1.5 text-right font-mono font-bold text-emerald-700">{tp.totalQuantity} টি</td>
+                      <td className="border border-slate-300 p-1.5 text-right font-mono font-bold">৳{tp.totalSales.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Detailed Itemized Table */}
+          <div className="mb-6">
+            <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider mb-2 border-b border-slate-300 pb-1">
+              ডেলিভারি সম্পন্ন হওয়া অর্ডারের বিবরণী ({salesReports.length} টি রেকর্ড)
+            </h3>
+            <table className="w-full text-[10px] border-collapse border border-slate-300">
+              <thead>
+                <tr className="bg-slate-100 text-slate-800 font-bold text-center">
+                  <th className="border border-slate-300 p-1.5">ক্র.</th>
+                  <th className="border border-slate-300 p-1.5 text-left">অর্ডার নং ও তারিখ</th>
+                  <th className="border border-slate-300 p-1.5 text-left">গ্রাহকের নাম ও ফোন</th>
+                  <th className="border border-slate-300 p-1.5 text-left">পণ্য ও পরিমাণ</th>
+                  <th className="border border-slate-300 p-1.5 text-right">পণ্যের মূল্য</th>
+                  <th className="border border-slate-300 p-1.5 text-right">ডেলিভারি ফি</th>
+                  <th className="border border-slate-300 p-1.5 text-right">মোট আদায়</th>
+                </tr>
+              </thead>
+              <tbody>
+                {salesReports.map((rep, idx) => (
+                  <tr key={rep._id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                    <td className="border border-slate-300 p-1.5 text-center font-mono">{idx + 1}</td>
+                    <td className="border border-slate-300 p-1.5">
+                      <span className="font-mono font-bold block">#{rep.orderNumber}</span>
+                      <span className="text-[9px] text-slate-500 block">
+                        {rep.deliveredAt ? new Date(rep.deliveredAt).toLocaleDateString('bn-BD') : ''}
+                      </span>
+                    </td>
+                    <td className="border border-slate-300 p-1.5">
+                      <span className="font-bold block">{rep.customerName}</span>
+                      <span className="font-mono text-slate-600 block">{rep.customerPhone}</span>
+                    </td>
+                    <td className="border border-slate-300 p-1.5">
+                      {rep.items.map((it, i) => (
+                        <div key={i} className="text-[10px]">
+                          • {it.productTitle} ({it.variantName}) × <b className="font-mono">{it.quantity}</b> = ৳{it.totalPrice}
+                        </div>
+                      ))}
+                    </td>
+                    <td className="border border-slate-300 p-1.5 text-right font-mono font-bold">
+                      ৳{Number(rep.subtotal || 0).toLocaleString()}
+                    </td>
+                    <td className="border border-slate-300 p-1.5 text-right font-mono text-slate-600">
+                      ৳{Number(rep.deliveryFee || 0).toLocaleString()}
+                    </td>
+                    <td className="border border-slate-300 p-1.5 text-right font-mono font-bold text-slate-900">
+                      ৳{Number(rep.totalAmount || 0).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-200 text-slate-900 font-bold border-t-2 border-slate-400">
+                  <td colSpan={4} className="border border-slate-300 p-2 text-right">
+                    সর্বমোট যোগফল ({salesReports.length} টি ডেলিভারড অর্ডার):
+                  </td>
+                  <td className="border border-slate-300 p-2 text-right font-mono">
+                    ৳{(salesReportSummary?.netProductSales ?? 0).toLocaleString()}
+                  </td>
+                  <td className="border border-slate-300 p-2 text-right font-mono">
+                    ৳{(salesReportSummary?.totalDeliveryFees ?? 0).toLocaleString()}
+                  </td>
+                  <td className="border border-slate-300 p-2 text-right font-mono text-xs font-black">
+                    ৳{(salesReportSummary?.totalRevenue ?? 0).toLocaleString()}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* Signatures & Certification Block */}
+          <div className="pt-12 flex justify-between items-end text-xs text-slate-600">
+            <div className="text-center w-48 border-t border-slate-400 pt-1">
+              <p className="font-bold text-slate-800">প্রস্তুতকারীর স্বাক্ষর</p>
+              <p className="text-[10px] text-slate-500">হিসাব ও অর্থ বিভাগ</p>
+            </div>
+
+            <div className="text-center text-[10px] text-slate-400">
+              <p>Elegant Beauty Automated System Generated Report</p>
+              <p>কম্পিউটার জেনারেটেড রিপোর্ট, কোনো ম্যানুয়াল সিল প্রয়োজন নেই</p>
+            </div>
+
+            <div className="text-center w-48 border-t border-slate-400 pt-1">
+              <p className="font-bold text-slate-800">অনুমোদনকারীর স্বাক্ষর</p>
+              <p className="text-[10px] text-slate-500">ব্যবস্থাপনা পরিচালক / স্বত্বাধিকারী</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
