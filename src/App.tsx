@@ -122,6 +122,8 @@ interface DashboardMetrics {
   conversionRate: string;
 }
 
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
+
 export default function App() {
   // 1. SECURITY & AUTHENTICATION STATE
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -508,7 +510,7 @@ export default function App() {
   // 6. REAL-TIME DATA FETCHING (POLLING EVERY 4 SECONDS)
   const fetchData = async (isBackground = false) => {
     if (!isBackground) setLoading(true);
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const apiUrl = API_BASE_URL;
 
     try {
       // 1. Fetch live metrics & sales graph
@@ -633,7 +635,7 @@ export default function App() {
   // Instant Real-time SSE Stream Listener
   useEffect(() => {
     if (!isAuthenticated) return;
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const apiUrl = API_BASE_URL;
 
     let eventSource: EventSource | null = null;
     try {
@@ -727,7 +729,7 @@ export default function App() {
     );
 
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const apiUrl = API_BASE_URL;
       const res = await fetch(`${apiUrl}/orders/${orderId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -746,7 +748,7 @@ export default function App() {
   // Handle Single Order Delete
   const handleDeleteOrder = async () => {
     if (!orderToDelete) return;
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const apiUrl = API_BASE_URL;
 
     try {
       const res = await fetch(`${apiUrl}/orders/${orderToDelete._id}`, {
@@ -771,7 +773,7 @@ export default function App() {
 
   // Handle Purge All Cancelled Orders
   const handlePurgeCancelled = async () => {
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const apiUrl = API_BASE_URL;
     try {
       const res = await fetch(`${apiUrl}/orders/actions/purge-cancelled`, {
         method: 'DELETE',
@@ -807,7 +809,7 @@ export default function App() {
   // Dispatch single order to Steadfast Courier
   const handleSendToSteadfast = async (orderId: string, force = false) => {
     setSendingCourierId(orderId);
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const apiUrl = API_BASE_URL;
 
     try {
       const res = await fetch(`${apiUrl}/orders/send-steadfast`, {
@@ -842,7 +844,7 @@ export default function App() {
   // Live track order from Steadfast Courier API
   const handleTrackSteadfast = async (orderId: string) => {
     setTrackingCourierId(orderId);
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const apiUrl = API_BASE_URL;
 
     try {
       const res = await fetch(`${apiUrl}/courier/tracking/${orderId}`);
@@ -864,7 +866,7 @@ export default function App() {
   // Refresh Steadfast balance manually
   const handleRefreshCourierBalance = async () => {
     setFetchingBalance(true);
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const apiUrl = API_BASE_URL;
     try {
       const res = await fetch(`${apiUrl}/courier/balance`, { cache: 'no-store' });
       const data = await res.json();
@@ -884,7 +886,7 @@ export default function App() {
   // Save Announcement & Limited Offer Banner to MongoDB Atlas
   const handleSaveAnnouncement = async () => {
     setSavingAnnouncement(true);
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const apiUrl = API_BASE_URL;
     try {
       const res = await fetch(`${apiUrl}/config`, {
         method: 'PUT',
@@ -919,7 +921,7 @@ export default function App() {
   // Save Categories to backend
   const handleSaveCategories = async (updatedCategories: CategoryConfig[]) => {
     setSavingCategories(true);
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const apiUrl = API_BASE_URL;
     try {
       const res = await fetch(`${apiUrl}/config`, {
         method: 'PUT',
@@ -996,7 +998,7 @@ export default function App() {
   // Save Delivery Locations to backend
   const handleSaveDeliveryLocations = async (updatedLocations: DeliveryLocationConfig[]) => {
     setSavingLocations(true);
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const apiUrl = API_BASE_URL;
     try {
       const res = await fetch(`${apiUrl}/config`, {
         method: 'PUT',
@@ -1114,7 +1116,7 @@ export default function App() {
     );
 
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const apiUrl = API_BASE_URL;
       await fetch(`${apiUrl}/products/${prod._id}/stock`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -1134,7 +1136,7 @@ export default function App() {
     );
 
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const apiUrl = API_BASE_URL;
       await fetch(`${apiUrl}/products/${prod._id}/stock`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -1181,7 +1183,7 @@ export default function App() {
     // 2. Backend proxy upload to ImageBB
     if (!uploadedUrl) {
       try {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+        const apiUrl = API_BASE_URL;
         const proxyRes = await fetch(`${apiUrl}/upload/imgbb`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1203,7 +1205,7 @@ export default function App() {
     // 3. Fallback to server local storage so upload NEVER fails
     if (!uploadedUrl) {
       try {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+        const apiUrl = API_BASE_URL;
         const localRes = await fetch(`${apiUrl}/upload/local`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1657,7 +1659,7 @@ export default function App() {
       reviews: editingProduct ? (editingProduct.reviews ?? []) : [],
     };
 
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const apiUrl = API_BASE_URL;
 
     try {
       if (editingProduct) {
@@ -1706,7 +1708,7 @@ export default function App() {
   const handleDeleteProduct = async () => {
     if (!productToDelete) return;
 
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const apiUrl = API_BASE_URL;
     try {
       const res = await fetch(`${apiUrl}/products/${productToDelete._id}`, {
         method: 'DELETE',
