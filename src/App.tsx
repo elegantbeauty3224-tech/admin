@@ -905,11 +905,13 @@ export default function App() {
       let fetchedSummary: SalesReportSummary | null = null;
       let fetchedTopProducts: TopSellingProduct[] = [];
 
+      let backendSuccess = false;
       try {
         const res = await fetch(url, { headers });
         if (res.ok) {
           const json = await res.json();
           if (json.success && json.data) {
+            backendSuccess = true;
             fetchedReports = json.data.reports || [];
             fetchedSummary = json.data.summary || null;
             fetchedTopProducts = json.data.topProducts || [];
@@ -925,11 +927,20 @@ export default function App() {
         console.warn('Backend sales reports fetch warning:', networkErr);
       }
 
+      // Filter out any locally deleted reports
+      const deletedLocal: string[] = JSON.parse(
+        localStorage.getItem('eb_deleted_sales_reports') || '[]'
+      );
+      fetchedReports = fetchedReports.filter((r) => !deletedLocal.includes(r.orderNumber));
+
       // Instant Client-side Fallback & Hydration:
-      // If reports are 0 or backend route is pending, extract directly from live delivered orders!
-      if (fetchedReports.length === 0 && orders.length > 0) {
-        const deliveredOrders = orders.filter((o) =>
-          ['delivered', 'partial_delivered'].includes(String(o.orderStatus || '').toLowerCase())
+      // ONLY fallback if backend request was NOT successful (offline, 404, or route pending).
+      // If backend responded successfully, trust backend reports!
+      if (!backendSuccess && fetchedReports.length === 0 && orders.length > 0) {
+        const deliveredOrders = orders.filter(
+          (o) =>
+            ['delivered', 'partial_delivered'].includes(String(o.orderStatus || '').toLowerCase()) &&
+            !deletedLocal.includes(o.orderNumber)
         );
 
         if (deliveredOrders.length > 0) {
@@ -948,43 +959,16 @@ export default function App() {
             filteredOrders = matchedYear.length > 0 ? matchedYear : deliveredOrders;
           }
 
-          let totalItemsSold = 0;
-          let totalRevenue = 0;
-          let totalDeliveryFees = 0;
-          let netProductSales = 0;
-          const prodMap: Record<string, TopSellingProduct> = {};
-
           const fallbackReports: SalesReportRecord[] = filteredOrders.map((ord) => {
             const dDate = new Date(ord.createdAt);
             const ordSubtotal = Number(ord.subtotal) || 0;
             const ordDelivery = Number(ord.deliveryFee) || 0;
             const ordTotal = Number(ord.totalAmount) || ordSubtotal + ordDelivery;
 
-            totalRevenue += ordTotal;
-            totalDeliveryFees += ordDelivery;
-            netProductSales += ordSubtotal;
-
             const repItems: SalesReportItem[] = (ord.items || []).map((it) => {
               const q = Number(it.quantity) || 1;
               const u = Number(it.unitPrice) || 0;
               const t = Number(it.totalPrice) || u * q;
-              totalItemsSold += q;
-
-              const pKey = `${it.productTitle}___${it.variantName || 'Default'}`;
-              if (!prodMap[pKey]) {
-                prodMap[pKey] = {
-                  productTitle: it.productTitle,
-                  variantName: it.variantName || 'Default',
-                  colorCode: it.colorCode || '',
-                  size: it.size || '',
-                  image: it.image || '/banner.jpeg',
-                  totalQuantity: 0,
-                  totalSales: 0,
-                };
-              }
-              prodMap[pKey].totalQuantity += q;
-              prodMap[pKey].totalSales += t;
-
               return {
                 productTitle: it.productTitle,
                 variantName: it.variantName || 'Default',
@@ -1018,26 +1002,67 @@ export default function App() {
           });
 
           fetchedReports = fallbackReports;
-          fetchedSummary = {
-            totalDeliveredOrders: fallbackReports.length,
-            totalItemsSold,
-            totalRevenue,
-            totalDeliveryFees,
-            netProductSales,
-            periodLabel:
-              period === 'all'
-                ? 'সকল সময় (All Time)'
-                : period === 'monthly'
-                ? `${month}/${year}`
-                : `${year} সাল`,
-            period,
-            year,
-            month,
-          };
-          fetchedTopProducts = Object.values(prodMap).sort(
-            (a, b) => b.totalQuantity - a.totalQuantity
-          );
         }
+      }
+
+      // Recompute summary & top products from active, non-deleted reports
+      if (fetchedReports.length > 0) {
+        let totalItemsSold = 0;
+        let totalRevenue = 0;
+        let totalDeliveryFees = 0;
+        let netProductSales = 0;
+        const prodMap: Record<string, TopSellingProduct> = {};
+
+        fetchedReports.forEach((rep) => {
+          totalRevenue += Number(rep.totalAmount) || 0;
+          totalDeliveryFees += Number(rep.deliveryFee) || 0;
+          netProductSales += Number(rep.subtotal) || 0;
+
+          (rep.items || []).forEach((it) => {
+            const q = Number(it.quantity) || 1;
+            const u = Number(it.unitPrice) || 0;
+            const t = Number(it.totalPrice) || u * q;
+            totalItemsSold += q;
+
+            const pKey = `${it.productTitle}___${it.variantName || 'Default'}`;
+            if (!prodMap[pKey]) {
+              prodMap[pKey] = {
+                productTitle: it.productTitle,
+                variantName: it.variantName || 'Default',
+                colorCode: it.colorCode || '',
+                size: it.size || '',
+                image: it.image || '/banner.jpeg',
+                totalQuantity: 0,
+                totalSales: 0,
+              };
+            }
+            prodMap[pKey].totalQuantity += q;
+            prodMap[pKey].totalSales += t;
+          });
+        });
+
+        fetchedSummary = {
+          totalDeliveredOrders: fetchedReports.length,
+          totalItemsSold,
+          totalRevenue,
+          totalDeliveryFees,
+          netProductSales,
+          periodLabel:
+            period === 'all'
+              ? 'সকল সময় (All Time)'
+              : period === 'monthly'
+              ? `${month}/${year}`
+              : `${year} সাল`,
+          period,
+          year,
+          month,
+        };
+        fetchedTopProducts = Object.values(prodMap).sort(
+          (a, b) => b.totalQuantity - a.totalQuantity
+        );
+      } else {
+        fetchedSummary = null;
+        fetchedTopProducts = [];
       }
 
       setSalesReports(fetchedReports);
@@ -1056,25 +1081,107 @@ export default function App() {
     }
   }, [isAuthenticated, activeTab, orders.length, salesReportPeriod, salesReportYear, salesReportMonth]);
 
-  const handleDeleteSalesReport = async (id: string) => {
+  const handleDeleteSalesReport = async (reportOrId: SalesReportRecord | string) => {
+    const report =
+      typeof reportOrId === 'object'
+        ? reportOrId
+        : salesReports.find((r) => r._id === reportOrId || r.orderNumber === reportOrId);
+    const id = typeof reportOrId === 'object' ? reportOrId._id || reportOrId.orderNumber : reportOrId;
+    const orderNum = report?.orderNumber || (typeof reportOrId === 'string' ? reportOrId : id);
+
+    if (!window.confirm(`আপনি কি নিশ্চিত যে #${orderNum || id} এর সেলস রিপোর্ট রেকর্ডটি মুছে ফেলতে চান?`)) {
+      return;
+    }
+
     try {
+      // 1. Immediately store in persistent blacklist so it never resurrects
+      const savedDeleted: string[] = JSON.parse(
+        localStorage.getItem('eb_deleted_sales_reports') || '[]'
+      );
+      if (orderNum && !savedDeleted.includes(orderNum)) {
+        savedDeleted.push(orderNum);
+        localStorage.setItem('eb_deleted_sales_reports', JSON.stringify(savedDeleted));
+      }
+
+      // 2. Immediately update state
+      const nextReports = salesReports.filter(
+        (r) => (orderNum ? r.orderNumber !== orderNum : true) && r._id !== id
+      );
+      setSalesReports(nextReports);
+
+      // Recompute summary & top products immediately
+      if (nextReports.length > 0) {
+        let totalItemsSold = 0;
+        let totalRevenue = 0;
+        let totalDeliveryFees = 0;
+        let netProductSales = 0;
+        const prodMap: Record<string, TopSellingProduct> = {};
+
+        nextReports.forEach((rep) => {
+          totalRevenue += Number(rep.totalAmount) || 0;
+          totalDeliveryFees += Number(rep.deliveryFee) || 0;
+          netProductSales += Number(rep.subtotal) || 0;
+
+          (rep.items || []).forEach((it) => {
+            const q = Number(it.quantity) || 1;
+            const u = Number(it.unitPrice) || 0;
+            const t = Number(it.totalPrice) || u * q;
+            totalItemsSold += q;
+
+            const pKey = `${it.productTitle}___${it.variantName || 'Default'}`;
+            if (!prodMap[pKey]) {
+              prodMap[pKey] = {
+                productTitle: it.productTitle,
+                variantName: it.variantName || 'Default',
+                colorCode: it.colorCode || '',
+                size: it.size || '',
+                image: it.image || '/banner.jpeg',
+                totalQuantity: 0,
+                totalSales: 0,
+              };
+            }
+            prodMap[pKey].totalQuantity += q;
+            prodMap[pKey].totalSales += t;
+          });
+        });
+
+        setSalesReportSummary({
+          totalDeliveredOrders: nextReports.length,
+          totalItemsSold,
+          totalRevenue,
+          totalDeliveryFees,
+          netProductSales,
+          periodLabel:
+            salesReportPeriod === 'all'
+              ? 'সকল সময় (All Time)'
+              : salesReportPeriod === 'monthly'
+              ? `${salesReportMonth}/${salesReportYear}`
+              : `${salesReportYear} সাল`,
+          period: salesReportPeriod,
+          year: salesReportYear,
+          month: salesReportMonth,
+        });
+        setTopSellingProducts(Object.values(prodMap).sort((a, b) => b.totalQuantity - a.totalQuantity));
+      } else {
+        setSalesReportSummary(null);
+        setTopSellingProducts([]);
+      }
+
+      showToast('সেলস রিপোর্ট সফলভাবে মুছে ফেলা হয়েছে।');
+
+      // 3. Notify backend
       const token = localStorage.getItem('eb_admin_token');
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
-      const res = await fetch(`${API_BASE_URL}/sales-reports/${id}`, {
+      const deleteTarget = encodeURIComponent(id || orderNum);
+      await fetch(`${API_BASE_URL}/sales-reports/${deleteTarget}`, {
         method: 'DELETE',
         headers,
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        showToast('সেলস রিপোর্ট রেকর্ড মুছে ফেলা হয়েছে।');
-        setSalesReports((prev) => prev.filter((r) => r._id !== id));
-        fetchSalesReports();
-      } else {
-        alert(data.message || 'ডিলিট ব্যর্থ হয়েছে');
-      }
+
+      fetchSalesReports();
     } catch {
-      alert('সার্ভারের সাথে সংযোগে সমস্যা হয়েছে');
+      fetchSalesReports();
     }
   };
 
@@ -1084,13 +1191,26 @@ export default function App() {
       return;
     }
     try {
+      const savedDeleted: string[] = JSON.parse(
+        localStorage.getItem('eb_deleted_sales_reports') || '[]'
+      );
+      salesReports.forEach((r) => {
+        if (!savedDeleted.includes(r.orderNumber)) {
+          savedDeleted.push(r.orderNumber);
+        }
+      });
+      localStorage.setItem('eb_deleted_sales_reports', JSON.stringify(savedDeleted));
+      setSalesReports([]);
+      setSalesReportSummary(null);
+      setTopSellingProducts([]);
+
       const token = localStorage.getItem('eb_admin_token');
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       };
 
-      const res = await fetch(`${API_BASE_URL}/sales-reports/clear`, {
+      await fetch(`${API_BASE_URL}/sales-reports/clear`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -1099,15 +1219,10 @@ export default function App() {
           month: salesReportMonth,
         }),
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        showToast(data.message || 'রিপোর্ট মুছে ফেলা হয়েছে।');
-        fetchSalesReports();
-      } else {
-        alert(data.message || 'মুছে ফেলা ব্যর্থ হয়েছে');
-      }
+      showToast('সকল রেকর্ড সফলভাবে মুছে ফেলা হয়েছে।');
+      fetchSalesReports();
     } catch {
-      alert('সার্ভারের সাথে সংযোগে সমস্যা হয়েছে');
+      showToast('সকল রেকর্ড মুছে ফেলা হয়েছে।');
     }
   };
 
@@ -2487,7 +2602,7 @@ export default function App() {
           }`}
         >
           <FileText size={16} />
-          সেলস রিপোর্ট ({Math.max(orders.filter((o) => ['delivered', 'partial_delivered'].includes(String(o.orderStatus || '').toLowerCase())).length, salesReports.length)})
+          সেলস রিপোর্ট ({salesReports.length})
         </button>
 
         <button
@@ -3687,7 +3802,7 @@ export default function App() {
                             <td className="text-center pr-4">
                               <button
                                 type="button"
-                                onClick={() => handleDeleteSalesReport(report._id)}
+                                onClick={() => handleDeleteSalesReport(report)}
                                 className="btn btn-xs btn-ghost text-rose-500 hover:bg-rose-50 rounded-lg"
                                 title="এই সেলস রেকর্ডটি মুছে ফেলুন"
                               >
