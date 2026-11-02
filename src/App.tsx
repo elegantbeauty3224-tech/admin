@@ -1051,10 +1051,10 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (isAuthenticated && activeTab === 'sales_reports') {
+    if (isAuthenticated) {
       fetchSalesReports(salesReportPeriod, salesReportYear, salesReportMonth);
     }
-  }, [isAuthenticated, activeTab, salesReportPeriod, salesReportYear, salesReportMonth]);
+  }, [isAuthenticated, activeTab, orders.length, salesReportPeriod, salesReportYear, salesReportMonth]);
 
   const handleDeleteSalesReport = async (id: string) => {
     try {
@@ -2487,7 +2487,7 @@ export default function App() {
           }`}
         >
           <FileText size={16} />
-          সেলস রিপোর্ট ({salesReports.length})
+          সেলস রিপোর্ট ({Math.max(orders.filter((o) => ['delivered', 'partial_delivered'].includes(String(o.orderStatus || '').toLowerCase())).length, salesReports.length)})
         </button>
 
         <button
