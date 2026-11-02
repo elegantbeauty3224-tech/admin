@@ -5,7 +5,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://backend-ratul-26b4.vercel.app/api/:path*"
+      "destination": "https://backend-nine-kohl-67.vercel.app/api/:path*"
     },
     {
       "source": "/(.*)",

@@ -122,7 +122,22 @@ interface DashboardMetrics {
   conversionRate: string;
 }
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
+const getApiBaseUrl = (): string => {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl) {
+    const cleaned = envUrl.replace(/\/+$/, '');
+    if (cleaned.includes('backend-ratul-26b4')) {
+      return 'https://backend-nine-kohl-67.vercel.app/api';
+    }
+    return cleaned;
+  }
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return 'https://backend-nine-kohl-67.vercel.app/api';
+  }
+  return 'http://localhost:5000/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 export default function App() {
   // 1. SECURITY & AUTHENTICATION STATE
