@@ -3354,13 +3354,12 @@ export default function App() {
                             <div className="flex items-center justify-end gap-1">
                               <button
                                 onClick={() => {
-                                  const origin = window.location.origin.includes('5173') || window.location.origin.includes('3001')
-                                    ? 'http://localhost:3000'
-                                    : window.location.origin;
-                                  const prodKey = prod.slug || prod._id || prod.title;
-                                  const shareUrl = `${origin}/?product=${encodeURIComponent(prodKey)}`;
+                                  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                                  const storeOrigin = isLocal ? 'http://localhost:3000' : 'https://www.elegant-beauty.xyz';
+                                  const prodKey = prod._id || prod.slug || prod.title;
+                                  const shareUrl = `${storeOrigin}/?product=${encodeURIComponent(prodKey)}`;
                                   navigator.clipboard.writeText(shareUrl);
-                                  setToastMessage(`"${prod.title.slice(0, 20)}..." এর মার্কেটিং লিংক কপি হয়েছে!`);
+                                  setToastMessage(`"${prod.title.slice(0, 20)}..." এর সোশ্যাল মিডিয়া মার্কেটিং লিংক কপি হয়েছে!`);
                                   setTimeout(() => setToastMessage(''), 3500);
                                 }}
                                 className="btn btn-xs btn-ghost btn-circle text-blue-600 hover:text-blue-800 hover:bg-blue-50"
