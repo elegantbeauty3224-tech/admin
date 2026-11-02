@@ -177,16 +177,19 @@ interface DashboardMetrics {
 }
 
 const getApiBaseUrl = (): string => {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host !== 'localhost' && host !== '127.0.0.1') {
+      return 'https://backend-nine-kohl-67.vercel.app/api';
+    }
+  }
   const envUrl = import.meta.env.VITE_API_URL;
-  if (envUrl) {
+  if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
     const cleaned = envUrl.replace(/\/+$/, '');
     if (cleaned.includes('backend-ratul-26b4')) {
       return 'https://backend-nine-kohl-67.vercel.app/api';
     }
     return cleaned;
-  }
-  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    return 'https://backend-nine-kohl-67.vercel.app/api';
   }
   return 'http://localhost:5000/api';
 };
@@ -1228,6 +1231,7 @@ export default function App() {
 
   const handleSyncSalesReports = async () => {
     try {
+      localStorage.removeItem('eb_deleted_sales_reports');
       const token = localStorage.getItem('eb_admin_token');
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
       showToast('ডেলিভারড অর্ডার সিঙ্ক করা হচ্ছে...');
@@ -1250,6 +1254,19 @@ export default function App() {
     setOrders((prev) =>
       prev.map((ord) => (ord._id === orderId ? { ...ord, orderStatus: newStatus } : ord))
     );
+
+    if (newStatus && String(newStatus).toLowerCase() === 'delivered') {
+      const ord = orders.find((o) => o._id === orderId);
+      if (ord?.orderNumber) {
+        try {
+          const deletedLocal: string[] = JSON.parse(
+            localStorage.getItem('eb_deleted_sales_reports') || '[]'
+          );
+          const updated = deletedLocal.filter((num) => num !== ord.orderNumber);
+          localStorage.setItem('eb_deleted_sales_reports', JSON.stringify(updated));
+        } catch {}
+      }
+    }
 
     try {
       const apiUrl = API_BASE_URL;
@@ -1989,40 +2006,6 @@ export default function App() {
     showToast(`✅ "${nextColor.name}" কালার স্বয়ংক্রিয়ভাবে যোগ করা হয়েছে!`);
   };
 
-  // Helper to load Luggage Demo (Exact demo from user)
-  const handleLoadLuggageDemo = () => {
-    setFormTitle('18-Inch Cabin Luggage / Hand Luggage');
-    setFormEnglishTitle('18-Inch Cabin Luggage / Hand Luggage');
-    setFormCategory('Luggage');
-    setFormRegularPrice(4500);
-    setFormSalePrice(2950);
-    setFormStock(35);
-    setFormInStock(true);
-    setFormDescription(
-      'ভ্রমণের জন্য ছোট, হালকা ও ব্যবহার উপযোগী লাগেজ খুঁজছেন? আমাদের 18-Inch Cabin Luggage হতে পারে আপনার জন্য উপযুক্ত পছন্দ। বিমানে ভ্রমণের সময় কেবিন লাগেজ হিসেবে ব্যবহার অথবা একক ব্যক্তির স্বল্প সময়ের ভ্রমণে প্রয়োজনীয় পোশাক ও জিনিসপত্র বহনের জন্য এটি একটি সুবিধাজনক অপশন।'
-    );
-    setFormSpecs([
-      { key: 'Size', value: '18 Inches' },
-      { key: 'Weight', value: 'Approximately 2 kg' },
-      { key: 'Capacity', value: 'Up to 7 kg of belongings' },
-      { key: 'Warranty', value: '2 Years' },
-      { key: 'Color Options', value: '6 Attractive Colors' },
-      { key: 'Lock System', value: 'Built-in Number Lock' },
-      { key: 'Wheels', value: '360° Spinner Wheels' },
-      { key: 'Quality', value: 'Premium Quality' },
-    ]);
-    setFormFeatures(
-      `Compact design for convenient travel.\nLightweight body for easy handling.\n360° spinner wheels for smooth movement.\nBuilt-in number lock for added convenience.\nSuitable for solo travelers and short trips.\nAvailable in 6 attractive colors to match your style.`
-    );
-    setFormSizes('18 Inches (কেবিন স্ট্যান্ডার্ড)');
-    setFormVariants([
-      { name: 'নেভি ব্লু (Navy Blue)', colorCode: '#1E3A8A', stock: 10 },
-      { name: 'রোজ পিঙ্ক (Rose Pink)', colorCode: '#FB7185', stock: 8 },
-      { name: 'ক্লাসিক ব্ল্যাক (Classic Black)', colorCode: '#09090B', stock: 10 },
-      { name: 'সিলভার গ্রে (Silver Grey)', colorCode: '#94A3B8', stock: 7 },
-    ]);
-    showToast('✨ ১৮-ইঞ্চি লাগেজ ডেমো ফিচার ও স্পেসিফিকেশন সফলভাবে লোড হয়েছে!');
-  };
 
   // Helper to parse pasted raw text into specs and features
   const handleParseCustomText = (text: string) => {
@@ -5411,15 +5394,6 @@ export default function App() {
                     <span className="badge badge-sm bg-emerald-100 text-emerald-800 font-bold border-0">
                       {formSizes.split(',').map((s) => s.trim()).filter(Boolean).length}টি সাইজ অন্তর্ভুক্ত
                     </span>
-                    <button
-                      type="button"
-                      onClick={handleLoadLuggageDemo}
-                      className="btn btn-xs bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 rounded-lg font-bold gap-1"
-                      title="১৮-ইঞ্চি লাগেজ ডেমোর বিস্তারিত, স্পেসিফিকেশন ও ফিচার পূরণ করুন"
-                    >
-                      <Sparkles size={12} className="text-amber-700" />
-                      লাগেজ ডেমো
-                    </button>
                   </div>
                 </div>
 
